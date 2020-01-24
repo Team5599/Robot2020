@@ -7,14 +7,30 @@
 
 package frc.robot;
 
+//Import(s) For Standard Robot Use
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
-import edu.wpi.first.wpilibj.Spark;
-import edu.wpi.first.wpilibj.SpeedControllerGroup;
-import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 
-import frc.robot.XBoxController;
+//Import(s) For TalonFX
+import com.ctre.phoenix.motorcontrol.ControlMode;
+import com.ctre.phoenix.motorcontrol.can.WPI_TalonFX;
+
+//Import(s) For Limelight
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableEntry;
+import edu.wpi.first.networktables.NetworkTableInstance;
+
+//Import(s) For Color Sensor
+import com.revrobotics.ColorSensorV3;
+import edu.wpi.first.wpilibj.I2C;
+import edu.wpi.first.wpilibj.SpeedControllerGroup;
+
+//Import(s) For SparkMAX
+import com.revrobotics.CANSparkMaxLowLevel.MotorType;
+import com.revrobotics.CANSparkMax;
 
 /**
  * The VM is configured to automatically run this class, and to call the
@@ -29,20 +45,32 @@ public class Robot extends TimedRobot {
   private String m_autoSelected;
   private final SendableChooser<String> m_chooser = new SendableChooser<>();
 
-  Spark leftFront = new Spark(0);
-  Spark leftCenter = new Spark(1);
-  Spark leftRear = new Spark(3);
+  // Declaration Of Objects
+  // Talon FX (Falcon 500) Motor(s)
+  WPI_TalonFX m_leftOne, m_leftTwo, m_rightOne, m_rightTwo;
 
-  Spark rightFront = new Spark(4);
-  Spark rightCenter = new Spark(5);
-  Spark rightRear = new Spark(6);
+  // Controller(s)
+  XBoxController controller;
 
-  SpeedControllerGroup leftDriveTrain = new SpeedControllerGroup(leftFront, leftCenter, leftRear);
-  SpeedControllerGroup rightDriveTrain = new SpeedControllerGroup(rightFront, rightCenter, rightRear);
+  // For Limelight
+  NetworkTable table;
+  NetworkTableEntry tx, ty, ta;
+  double xOffset, yOffset, targetArea;
 
-  DifferentialDrive driveTrain = new DifferentialDrive(leftDriveTrain, rightDriveTrain);
+  // For Color Sensor V3
+  I2C.Port p_color;
+  ColorSensorV3 s_color;
 
-  XBoxController controller = new XBoxController(0);
+  // For Retrieving FMS Data
+  String gameData;
+
+  // CAN SparkMax Motor(s)
+  CANSparkMax controlPanelSpinner;
+
+  SpeedControllerGroup leftDrive;
+  SpeedControllerGroup rightDrive;
+
+  DifferentialDrive driveTrain;
 
   /**
    * This function is run when the robot is first started up and should be used
@@ -53,6 +81,36 @@ public class Robot extends TimedRobot {
     m_chooser.setDefaultOption("Default Auto", kDefaultAuto);
     m_chooser.addOption("My Auto", kCustomAuto);
     SmartDashboard.putData("Auto choices", m_chooser);
+
+    // Initializing Objects
+    // Left Talon Motor(s)
+    m_leftOne = new WPI_TalonFX(0);
+    m_leftTwo = new WPI_TalonFX(1);
+
+    // Right Talon Motor(s)
+    m_rightOne = new WPI_TalonFX(3);
+    m_rightTwo = new WPI_TalonFX(4);
+
+    // Controller(s)
+    controller = new XBoxController(0);
+
+    // For Limelight
+    table = NetworkTableInstance.getDefault().getTable("limelight");
+    tx = table.getEntry("tx");
+    ty = table.getEntry("ty");
+    ta = table.getEntry("ta");
+
+    // For Color Sensor V3
+    p_color = I2C.Port.kOnboard;
+    s_color = new ColorSensorV3(p_color);
+
+    // Control Panel Spinner Motor
+    controlPanelSpinner = new CANSparkMax(0, MotorType.kBrushless);
+
+    leftDrive = new SpeedControllerGroup(m_leftOne, m_leftTwo);
+    rightDrive = new SpeedControllerGroup(m_rightOne, m_rightTwo);
+
+    driveTrain = new DifferentialDrive(leftDrive, rightDrive);
   }
 
   /**
@@ -109,7 +167,54 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void teleopPeriodic() {
-    driveTrain.tankDrive(controller.getLeftThumbstickY(), controller.getRightThumbstickY());
+
+    /*
+     * If the 'X' button is pressed then, if the vision target is to the left,
+     * rotate left. If the vision target is to the right, rotate right.
+     */
+    if (controller.getXButton()) {
+      xOffset = tx.getDouble(0.0);
+      yOffset = ty.getDouble(0.0);
+      targetArea = ta.getDouble(0.0);
+
+      if (xOffset < -1) {
+        driveTrain.tankDrive(-0.5, 0.5);
+      } else if (xOffset > 9) {
+        driveTrain.tankDrive(0.5, -0.5);
+      }
+    } else {
+      driveTrain.tankDrive(controller.getLeftThumbstickY(), controller.getRightThumbstickY());
+    }
+
+    /*
+     * If the 'A' button is pressed, then, spin the motor. If the current color
+     * detected is equal to FMS, stop the motor.
+     */
+    if (controller.getAButton()) {
+      gameData = DriverStation.getInstance().getGameSpecificMessage();
+
+      controlPanelSpinner.set(0.5);
+
+      if (gameData.length() > 0) {
+        if ((s_color.getRed() > s_color.getGreen()) & gameData.charAt(0) == 'R') {
+          SmartDashboard.putString("Color", "Red?");
+          controlPanelSpinner.set(0);
+        } else if ((s_color.getBlue() > s_color.getGreen()) & gameData.charAt(0) == 'B') {
+          SmartDashboard.putString("Color", "Blue?");
+          controlPanelSpinner.set(0);
+        } else if (((s_color.getRed() > s_color.getBlue()) & (s_color.getGreen() > s_color.getBlue()))
+            & gameData.charAt(0) == 'Y') {
+          SmartDashboard.putString("Color", "Yellow?");
+          controlPanelSpinner.set(0);
+        } else if (((s_color.getGreen() > s_color.getRed()) & (s_color.getGreen() > s_color.getBlue()))
+            & gameData.charAt(0) == 'G') {
+          SmartDashboard.putString("Color", "Green?");
+          controlPanelSpinner.set(0);
+        }
+      }
+    } else {
+      controlPanelSpinner.set(0);
+    }
   }
 
   /**
