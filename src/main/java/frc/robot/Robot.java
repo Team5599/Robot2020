@@ -65,6 +65,7 @@ public class Robot extends TimedRobot {
 
   // CAN SparkMax Motor(s)
   CANSparkMax controlPanelSpinner;
+  CANSparkMax shooter;
 
   SpeedControllerGroup leftDrive;
   SpeedControllerGroup rightDrive;
@@ -105,6 +106,9 @@ public class Robot extends TimedRobot {
 
     // Control Panel Spinner Motor
     controlPanelSpinner = new CANSparkMax(0, MotorType.kBrushless);
+
+    // Shooter Motor
+    shooter = new CANSparkMax(1, MotorType.kBrushless);
 
     leftDrive = new SpeedControllerGroup(m_leftOne, m_leftTwo);
     rightDrive = new SpeedControllerGroup(m_rightOne, m_rightTwo);
@@ -214,6 +218,17 @@ public class Robot extends TimedRobot {
     } else {
       controlPanelSpinner.set(0);
     }
+
+    /*
+     * If '' button is pressed, motor for shooter is spun forward to shoot out battery cell (balls).
+     * If '' button is pressed, motor for shooter is spun backwards to intake battery cell.
+     * When button is released, motor stops.
+     */
+     //NOTE: This feature is still being worked on, so conditions and set values may change
+     //if(*condition goes here*) shooter.set(0.7);
+     //else if(*condition goes here*) shooter.set(-0.7);
+     //else shooter.set(0);
+
   }
 
   /**
